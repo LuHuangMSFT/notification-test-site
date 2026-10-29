@@ -20,6 +20,9 @@ test("plain-site load does not install a worker or declare a manifest", async ({
   await expect(page.locator("#environment")).toContainText("browser");
   await expect(page.locator("#environment")).toContainText("true");
   await expect(page.locator("#error")).toBeEmpty();
+  await expect(page.locator("#advanced-push")).not.toHaveAttribute("open");
+  await expect(page.locator("#subscribe")).not.toBeVisible();
+  await expect(page.locator("#worker-now")).toBeVisible();
   expect((await page.request.get("./manifest.json")).status()).toBe(404);
 });
 
@@ -88,6 +91,7 @@ test("project-scoped worker activates and event storage remains bounded and dura
 
 test("subscription requires explicit permission; no credentials appear in logs", async ({ page }) => {
   await page.goto("./");
+  await page.getByText("Optional: real Web Push (advanced)", { exact: true }).click();
   await page.getByRole("button", { name: "Subscribe this browser to push", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveText("Allow notifications first.");
   await expect(page.locator("#log")).not.toContainText("endpoint");
@@ -106,6 +110,7 @@ test("a broader homepage worker is never treated as this project's subscription"
   });
   await page.goto("./");
   await expect(page.getByText("Ready. Choose a notification path above.")).toBeVisible();
+  await page.getByText("Optional: real Web Push (advanced)", { exact: true }).click();
   await expect(page.locator("#push-status")).toContainText("Not subscribed.");
   await expect(page.locator("#unsubscribe")).toBeDisabled();
   await expect(page.locator("#error")).toBeEmpty();
@@ -163,13 +168,17 @@ test("runtime errors and unhandled rejections persist, redact, and replay into t
     expect(JSON.stringify({ report, consoleLines })).not.toMatch(/private-endpoint|private-auth|private-key/);
   });
 
-test("failed startup still permits a diagnostic download with the exact failing stage", async ({ page }) => {
+test("missing optional push configuration does not block the simple worker test or diagnostic export", async ({ page, context }) => {
+  await context.grantPermissions(["notifications"]);
   await page.route("**/config.json", route => route.fulfill({ status: 503, body: "unavailable" }));
   await page.goto("./");
   await expect(page.locator("#error")).toContainText("HTTP 503");
   const report = await downloadReport(page);
-  expect(report.events.find(event => event.event === "startup-error").error.message).toContain("HTTP 503");
+  expect(report.events.find(event => event.event === "configuration-error").error.message).toContain("HTTP 503");
   expect(report.environment.secureContext).toBe(true);
+  await page.getByRole("button", { name: "Send service-worker notification", exact: true }).click();
+  await expect(page.locator("#log")).toContainText("worker-acknowledged");
+  await page.getByRole("button", { name: "Close this site's test notifications", exact: true }).click();
 });
 
 test("failed IndexedDB explicitly falls back to memory without blocking actual notifications or export",
@@ -206,6 +215,7 @@ test("a stalled IndexedDB request times out once and leaves diagnostic export us
   await page.addInitScript(() => { indexedDB.open = () => ({}); });
   await page.goto("./");
   await expect(page.locator("#notice")).toContainText("Ready.", { timeout: 10000 });
+  await expect(page.locator("#log")).toContainText("configuration-loaded");
   const report = await downloadReport(page);
   expect(report.storage.error.message).toContain("timed out");
   expect(report.events.some(event => event.event === "configuration-loaded")).toBe(true);
@@ -245,6 +255,7 @@ test("subscription failures retain the failing stage while diagnostics omit priv
       };
     });
     await page.goto("./");
+    await page.getByText("Optional: real Web Push (advanced)", { exact: true }).click();
     await page.getByRole("button", { name: "Subscribe this browser to push", exact: true }).click();
     await expect(page.locator("#log")).toContainText("push-subscription-started");
     await expect(page.locator("#log")).toContainText("action-error");
@@ -262,6 +273,98 @@ test("subscription failures retain the failing stage while diagnostics omit priv
     });
     expect(JSON.stringify({ report, consoleLines })).not.toMatch(/private-endpoint|private-auth|private-p256dh/);
   });
+
+test("the simple worker button uses real worker notification APIs without a push subscription",
+  async ({ page, context }) => {
+    await context.grantPermissions(["notifications"]);
+    await page.addInitScript(() => {
+      PushManager.prototype.subscribe = () => { throw new Error("The simple test must never subscribe"); };
+      PushManager.prototype.getSubscription = () => { throw new Error("The simple test must not need push status"); };
+    });
+    await page.goto("./");
+    await page.locator("#worker-persistent").check();
+    await page.getByRole("button", { name: "Send service-worker notification", exact: true }).click();
+    await expect(page.locator("#log")).toContainText("worker-acknowledged");
+    await expect(page.locator("#error")).toBeEmpty();
+    const worker = context.serviceWorkers()[0];
+    const notification = await worker.evaluate(async () => {
+      const notifications = await self.registration.getNotifications();
+      return { title: notifications[0].title, data: notifications[0].data,
+        requireInteraction: notifications[0].requireInteraction,
+        subscribed: !!await self.registration.pushManager.getSubscription() };
+    });
+    expect(notification).toMatchObject({
+      title: expect.stringMatching(/^SAA worker /), data: { path: "worker" },
+      requireInteraction: true, subscribed: false,
+    });
+    await page.close();
+    const reopened = await context.newPage();
+    await reopened.goto("./");
+    const report = await downloadReport(reopened);
+    expect(report.worker.subscribed).toBe(false);
+    for (const event of ["worker-requested", "worker-received", "worker-display-requested",
+      "worker-show-resolved", "worker-acknowledged"]) {
+      expect(report.events.find(entry => entry.event === event).id).toBe(notification.data.id);
+    }
+    expect(report.events.find(entry => entry.event === "worker-show-resolved").source).toBe("worker");
+    expect(report.events.some(entry => entry.event === "push-received" || entry.event === "push-subscribed")).toBe(false);
+    expect(await worker.evaluate(async () => (await self.registration.getNotifications()).length)).toBe(1);
+    await reopened.getByRole("button", { name: "Close this site's test notifications", exact: true }).click();
+  });
+
+test("an older active worker is upgraded before the one-click notification is sent", async ({ page, context }) => {
+  await context.grantPermissions(["notifications"]);
+  await page.goto("./");
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.register("./sw.js?fixture=old-worker", { type: "module", scope: "./" });
+    await navigator.serviceWorker.ready;
+  });
+  expect(await context.serviceWorkers()[0].evaluate(() => self.testOldWorker)).toBe(true);
+  await page.getByRole("button", { name: "Send service-worker notification", exact: true }).click();
+  await expect(page.locator("#log")).toContainText("worker-acknowledged");
+  const report = await downloadReport(page);
+  expect(report.events.find(event => event.event === "worker-acknowledged").workerVersion).toBe(LAB_VERSION);
+  await page.getByRole("button", { name: "Close this site's test notifications", exact: true }).click();
+});
+
+test("worker display rejection reaches the page and diagnostic report without a success response",
+  async ({ page, context }) => {
+    await context.grantPermissions(["notifications"]);
+    await page.goto("./");
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.register("./sw.js", { type: "module" });
+      await navigator.serviceWorker.ready;
+    });
+    await context.serviceWorkers()[0].evaluate(() => {
+      self.registration.showNotification = async () => {
+        throw new DOMException("Synthetic worker display denied", "NotAllowedError");
+      };
+    });
+    await page.getByRole("button", { name: "Send service-worker notification", exact: true }).click();
+    await expect(page.locator("#error")).toContainText("Synthetic worker display denied");
+    const report = await downloadReport(page);
+    const failed = report.events.find(event => event.event === "worker-display-error");
+    expect(failed.error.name).toBe("NotAllowedError");
+    expect(report.events.find(event => event.event === "worker-send-error").id).toBe(failed.id);
+    expect(report.events.some(event => event.event === "worker-acknowledged")).toBe(false);
+  });
+
+test("missing worker responses time out explicitly instead of claiming success", async ({ page, context }) => {
+  await context.grantPermissions(["notifications"]);
+  await page.clock.install();
+  await page.addInitScript(() => {
+    ServiceWorker.prototype.postMessage = () => { window.workerMessageDropped = true; };
+  });
+  await page.goto("./");
+  await page.getByRole("button", { name: "Send service-worker notification", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.workerMessageDropped)).toBe(true);
+  await expect(page.locator("#worker-now")).toBeDisabled();
+  await page.clock.fastForward(16000);
+  await expect(page.locator("#error")).toContainText("did not confirm");
+  const report = await downloadReport(page);
+  expect(report.events.some(event => event.event === "worker-send-error")).toBe(true);
+  expect(report.events.some(event => event.event === "worker-acknowledged")).toBe(false);
+});
 
 test("service-worker lifecycle and browser-delivered push diagnostics survive without the site document",
   async ({ page, context }) => {

@@ -22,7 +22,10 @@ createServer(async (request, response) => {
     return;
   }
   try {
-    const data = await readFile(new URL(name, root));
+    // Serve a real old worker: browser routing cannot intercept worker script updates.
+    const data = name === "sw.js" && url.searchParams.get("fixture") === "old-worker"
+      ? "self.testOldWorker = true; self.addEventListener('install', e => e.waitUntil(self.skipWaiting())); self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));"
+      : await readFile(new URL(name, root));
     response.writeHead(200, {
       "Content-Type": `${files.get(name)}; charset=utf-8`,
       "Cache-Control": "no-store",

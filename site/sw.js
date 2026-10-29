@@ -1,5 +1,5 @@
 import { recordDiagnostic, errorDetails, installErrorHandlers } from "./diagnostics.js";
-import { handlePush, handleClick } from "./push-handler.js";
+import { handlePush, handleClick, handleMessage } from "./push-handler.js";
 
 async function publish(message) {
   const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
@@ -40,12 +40,18 @@ self.addEventListener("push", event => {
     await handlePush(event, self.registration, recordDiagnostic, publish);
   }));
 });
+self.addEventListener("message", event => {
+  if (event.data?.type !== "lab-show-notification") return;
+  event.waitUntil(run("worker-message", () =>
+    handleMessage(event, self.registration, recordDiagnostic, publish)));
+});
 self.addEventListener("notificationclick", event => {
   event.waitUntil(run("worker-click", () =>
     handleClick(event, self.registration, self.clients, recordDiagnostic)));
 });
 self.addEventListener("notificationclose", event => {
-  event.waitUntil(run("worker-close", () => recordDiagnostic("push-closed", { id: event.notification.data?.id })
+  const path = event.notification.data?.path === "worker" ? "worker" : "push";
+  event.waitUntil(run("worker-close", () => recordDiagnostic(`${path}-closed`, { id: event.notification.data?.id })
     .then(() => publish({ type: "lab-events-updated" }))));
 });
 self.addEventListener("pushsubscriptionchange", event => {

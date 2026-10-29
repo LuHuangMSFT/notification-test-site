@@ -16,7 +16,8 @@
       <p class="eyebrow">MANIFEST-FREE TEST SITE</p>
       <h1>Site-as-app Notification Lab</h1>
       <p>Compare a normal browser tab with Edge's <strong>Install this site as an app</strong>.
-        This site has no web app manifest. Installing it does not subscribe you to push.</p>
+        This site has no web app manifest. Both primary tests work without a push
+        subscription, server, or GitHub account.</p>
     </header>
 
     <section aria-labelledby="environment-heading">
@@ -52,13 +53,33 @@
         <p id="tab-status" role="status">No pending timers.</p>
       </section>
 
-      <section aria-labelledby="push-heading">
-        <p class="eyebrow">PATH B: REAL NETWORK PUSH</p>
-        <h2 id="push-heading">3. Push &rarr; service worker &rarr; notification</h2>
+      <section aria-labelledby="worker-heading">
+        <p class="eyebrow">PATH B: SERVICE WORKER, NO PUSH SETUP</p>
+        <h2 id="worker-heading">3. Service-worker notification</h2>
+        <p>The button sends a message to the service worker, which calls
+          <code>showNotification()</code>. Just allow notifications above and click.</p>
+        <label class="check"><input id="worker-persistent" type="checkbox">
+          Require interaction (persistent reminder)</label>
+        <div class="buttons">
+          <button id="worker-now" disabled>Send service-worker notification</button>
+        </div>
+        <p id="worker-status" role="status">No push subscription is needed.</p>
+        <p>Keep this page open until the worker confirms the request. The resulting
+          notification is managed by the browser and can outlive the page.
+          This is <strong>not network push</strong> and does not test delivery
+          after closing the app or quitting the browser.</p>
+      </section>
+    </div>
+
+    <section aria-label="Optional real Web Push">
+      <details id="advanced-push">
+        <summary>Optional: real Web Push (advanced)</summary>
+        <p>Skip this section for the two tests above. Use it only to test incoming
+          notifications while the site's documents are closed.</p>
         <p>GitHub Actions sends encrypted Web Push to the browser's push service.
           The browser fires a real <code>push</code> event; the service worker calls
           <code>showNotification()</code>. This path does not need an open site tab.</p>
-        <p id="push-status" role="status">Checking subscription...</p>
+        <p id="push-status" role="status">Open this section to check the push subscription.</p>
         <div class="buttons">
           <button id="subscribe" disabled>Subscribe this browser to push</button>
           <button id="download" disabled>Download private subscription</button>
@@ -87,13 +108,13 @@
           Closing all browser processes or disabling OS background delivery can
           prevent or delay push. A successful sender run means the push service
           accepted the message, not that Windows displayed a banner.</p>
-      </section>
-    </div>
+      </details>
+    </section>
 
     <section aria-labelledby="evidence-heading">
       <h2 id="evidence-heading">4. Inspect the evidence</h2>
-      <p>Events stay in this browser profile, bounded to the latest 500. Push events
-        are saved even with the page closed; reopen it and refresh. Check Windows
+      <p>Events stay in this browser profile, bounded to the latest 500. Page and worker
+        events are included in the report; reopen the site to inspect earlier events. Check Windows
         Notification Center separately: API success is not proof of a visible banner.</p>
       <div class="buttons">
         <button id="export" disabled>Download diagnostic report</button>
@@ -116,8 +137,8 @@
     </section>
     <footer>
       <p>No analytics, third-party scripts, web app manifest, or notification backend.
-        Subscription credentials are not uploaded by this page. GitHub hosts the
-        site; after you register its secret, Actions sends to the browser's push service.</p>
+        No account, subscription, or backend is needed for the two primary tests.
+        Real Web Push is available separately in the optional advanced section.</p>
       <p><a id="source" href="https://github.com/LuHuangMSFT/notification-test-site" target="_blank" rel="noopener noreferrer">Source and test instructions</a></p>
     </footer>
   </main>

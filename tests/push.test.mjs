@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { createECDH, randomBytes } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import webPush from "web-push";
-import { parseDelay, decodePublicKey, validatePushPayload } from "../site/shared.js";
-import { handlePush, handleClick } from "../site/push-handler.js";
+import { parseDelay, decodePublicKey, validatePushPayload, LAB_VERSION } from "../site/shared.js";
+import { handlePush, handleClick, handleMessage } from "../site/push-handler.js";
 import { errorDetails } from "../site/diagnostics.js";
 import { validateSubscription, createPayload, safeFailure } from "../scripts/send-push.mjs";
 
@@ -111,18 +111,76 @@ test("malformed push is a visible diagnostic error, not a successful synthetic n
   assert.deepEqual(events, ["push-error"]);
 });
 
-test("click opens only this project, never a sibling GitHub Pages project", async () => {
+test("page messages use worker diagnostics and acknowledge only after actual notification display", async () => {
+  const calls = [];
+  const replies = [];
+  const scope = "https://luhuangmsft.github.io/notification-test-site/";
+  await handleMessage({
+    source: { url: `${scope}?test=1` }, data: { payload },
+    ports: [{ postMessage(reply) { calls.push("reply"); replies.push(reply); }, close() { calls.push("close"); } }],
+  }, {
+    scope,
+    async showNotification(title, options) {
+      calls.push("display");
+      assert.equal(title, payload.title);
+      assert.equal(options.data.path, "worker");
+      assert.equal(options.tag, `notification-lab:${payload.id}`);
+    },
+  }, async event => calls.push(event), async () => calls.push("publish"));
+  assert.deepEqual(calls, ["worker-received", "worker-display-requested", "display",
+    "worker-show-resolved", "publish", "reply", "close"]);
+  assert.deepEqual(replies, [{ ok: true, id: payload.id, version: LAB_VERSION }]);
+});
+
+test("worker message failures return sanitized errors, never a successful acknowledgment", async () => {
+  const events = [];
+  const replies = [];
+  const scope = "https://luhuangmsft.github.io/notification-test-site/";
+  await assert.rejects(handleMessage({
+    source: { url: scope }, data: { payload },
+    ports: [{ postMessage(reply) { replies.push(reply); }, close() {} }],
+  }, {
+    scope,
+    async showNotification() { throw new DOMException("Display denied token=private-token", "NotAllowedError"); },
+  }, async event => events.push(event), async () => {}), /Display denied/);
+  assert.deepEqual(events, ["worker-received", "worker-display-requested", "worker-display-error"]);
+  assert.equal(replies[0].ok, false);
+  assert.equal(replies[0].id, payload.id);
+  assert.equal(replies[0].error.name, "NotAllowedError");
+  assert.doesNotMatch(JSON.stringify(replies), /private-token/);
+});
+
+test("worker messages reject out-of-scope clients and malformed payloads before display", async () => {
+  const scope = "https://luhuangmsft.github.io/notification-test-site/";
+  for (const [url, data] of [
+    ["https://luhuangmsft.github.io/other-project/", { payload }],
+    [scope, { payload: {} }],
+  ]) {
+    const replies = [];
+    await assert.rejects(handleMessage({
+      source: { url }, data, ports: [{ postMessage(reply) { replies.push(reply); }, close() {} }],
+    }, { scope, showNotification() { assert.fail("Invalid request should not display"); } },
+    async () => {}, async () => {}), /this site's page|invalid worker/);
+    assert.equal(replies[0].ok, false);
+  }
+});
+
+test("legacy push and page-triggered notification clicks retain their path and open only this project", async () => {
   const opened = [];
-  await handleClick({ notification: {
-    tag: "notification-lab:test", data: { id: "test", url: "https://unrelated.example/" },
-    close() {},
-  } }, { scope: "https://luhuangmsft.github.io/notification-test-site/" }, {
-    async matchAll() { return [{
-      url: "https://luhuangmsft.github.io/other-project/", focus() { assert.fail("Wrong app"); },
-    }]; },
-    async openWindow(url) { opened.push(url); },
-  }, async () => {});
-  assert.deepEqual(opened, ["https://luhuangmsft.github.io/notification-test-site/"]);
+  const events = [];
+  for (const path of [undefined, "worker"]) {
+    await handleClick({ notification: {
+      tag: "notification-lab:test", data: { id: "test", path, url: "https://unrelated.example/" },
+      close() {},
+    } }, { scope: "https://luhuangmsft.github.io/notification-test-site/" }, {
+      async matchAll() { return [{
+        url: "https://luhuangmsft.github.io/other-project/", focus() { assert.fail("Wrong app"); },
+      }]; },
+      async openWindow(url) { opened.push(url); },
+    }, async event => events.push(event));
+  }
+  assert.deepEqual(opened, Array(2).fill("https://luhuangmsft.github.io/notification-test-site/"));
+  assert.deepEqual(events, ["push-clicked", "worker-clicked"]);
 });
 
 test("provider failures never print subscription endpoints or private material", () => {

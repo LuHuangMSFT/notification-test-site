@@ -8,6 +8,7 @@ const $ = id => document.getElementById(id);
 const modes = ["browser", "minimal-ui", "standalone", "fullscreen", "window-controls-overlay"];
 const timers = new Map();
 const notifications = new Set();
+const activeActions = new Set();
 const baseURL = new URL("./", location.href);
 let config;
 let subscription;
@@ -44,6 +45,7 @@ function action(id, callback) {
     const actionId = crypto.randomUUID();
     const trace = id !== "clear-log";
     $("error").textContent = "";
+    activeActions.add(id);
     $(id).disabled = true;
     try {
       if (trace) void record("action-started", { action: id, actionId });
@@ -52,6 +54,7 @@ function action(id, callback) {
     } catch (error) {
       await fail(error, "action-error", { action: id, actionId });
     } finally {
+      activeActions.delete(id);
       $(id).disabled = false;
       try { await refresh(); } catch (error) { fail(error); }
     }
@@ -84,20 +87,27 @@ async function refresh() {
     return [term, description];
   }));
   const worker = await registration();
-  subscription = worker ? await worker.pushManager.getSubscription() : null;
-  $("push-status").textContent = subscription
-    ? `Subscribed. Worker scope: ${worker.scope}. The Actions secret must match this browser.`
-    : worker ? "Not subscribed. The test service worker remains registered."
-      : "Not subscribed. No push worker is registered until you subscribe.";
-  $("download").disabled = !subscription;
-  $("unsubscribe").disabled = !subscription;
-  $("subscribe").disabled = !isSecureContext || !("PushManager" in window) || !!subscription;
-  $("tab-now").disabled = current.permission !== "granted";
-  $("tab-schedule").disabled = current.permission !== "granted";
-  $("tab-cancel").disabled = !timers.size;
+  $("worker-status").textContent = worker
+    ? `Worker scope: ${worker.scope}. No push subscription is needed for this test.`
+    : "The button registers the service worker automatically. No push subscription is needed.";
+  $("worker-now").disabled = activeActions.has("worker-now") ||
+    current.permission !== "granted" || !isSecureContext || !("serviceWorker" in navigator);
+  $("tab-now").disabled = activeActions.has("tab-now") || current.permission !== "granted";
+  $("tab-schedule").disabled = activeActions.has("tab-schedule") || current.permission !== "granted";
+  $("tab-cancel").disabled = activeActions.has("tab-cancel") || !timers.size;
   $("tab-status").textContent = timers.size
     ? `${timers.size} pending timer(s). Keep this document open.`
     : "No pending timers.";
+  if ($("advanced-push").open) {
+    subscription = worker?.pushManager ? await worker.pushManager.getSubscription() : null;
+    $("push-status").textContent = subscription
+      ? `Subscribed. Worker scope: ${worker.scope}. The Actions secret must match this browser.`
+      : "Not subscribed. Subscribe only if you want to test real network push.";
+    $("download").disabled = activeActions.has("download") || !subscription;
+    $("unsubscribe").disabled = activeActions.has("unsubscribe") || !subscription;
+    $("subscribe").disabled = activeActions.has("subscribe") ||
+      !config || !isSecureContext || !("PushManager" in window) || !!subscription;
+  }
   await showLog();
 }
 
@@ -142,9 +152,9 @@ async function sendTab(persistent, id = `tab-${crypto.randomUUID()}`) {
 }
 
 function waitForActivation(worker) {
-  if (worker.active?.state === "activated") return Promise.resolve();
   const candidate = worker.installing || worker.waiting || worker.active;
   if (!candidate) return Promise.reject(new Error("No service worker is available."));
+  if (candidate.state === "activated") return Promise.resolve();
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => finish(new Error("Service worker activation timed out.")), 15000);
     function finish(error) {
@@ -161,6 +171,48 @@ function waitForActivation(worker) {
     }
     candidate.addEventListener("statechange", check);
     check();
+  });
+}
+
+async function ensureWorker() {
+  await record("worker-registration-started", { scope: baseURL.href });
+  const worker = await navigator.serviceWorker.register(new URL("sw.js", baseURL), {
+    scope: baseURL.href, type: "module", updateViaCache: "none",
+  });
+  await record("worker-registered", { scope: worker.scope });
+  await waitForActivation(worker);
+  await record("worker-activated", { scope: worker.scope });
+  return worker;
+}
+
+function requestWorkerNotification(worker, payload) {
+  return new Promise((resolve, reject) => {
+    const channel = new MessageChannel();
+    const timeout = setTimeout(() => finish(new Error(
+      "The service worker did not confirm the notification within 15 seconds. Check the diagnostic report before retrying.")), 15000);
+    function finish(error, result) {
+      clearTimeout(timeout);
+      channel.port1.close();
+      channel.port2.close();
+      if (error) reject(error); else resolve(result);
+    }
+    channel.port1.onmessage = ({ data }) => {
+      if (data?.id !== payload.id) {
+        finish(new Error("Unexpected service-worker notification response."));
+      } else if (data.ok === true) {
+        finish(null, data);
+      } else {
+        const error = new Error(data.error?.message || "The service worker could not show the notification.");
+        error.name = data.error?.name || "Error";
+        finish(error);
+      }
+    };
+    channel.port1.onmessageerror = () => finish(new Error("Cannot read the service-worker notification response."));
+    try {
+      worker.postMessage({ type: "lab-show-notification", payload }, [channel.port2]);
+    } catch (error) {
+      finish(error);
+    }
   });
 }
 
@@ -202,16 +254,29 @@ action("tab-cancel", async () => {
   timers.clear();
   await record("tab-timers-canceled", { ids });
 });
+action("worker-now", async () => {
+  if (Notification.permission !== "granted") throw new Error("Allow notifications first.");
+  const id = `worker-${crypto.randomUUID()}`;
+  const payload = {
+    version: 1, id, sentAt: new Date().toISOString(), title: `SAA worker ${id.slice(-8)}`,
+    body: "Service-worker notification triggered by this page. No network push.",
+    requireInteraction: $("worker-persistent").checked,
+  };
+  try {
+    const worker = await ensureWorker();
+    await record("worker-requested", { id, title: payload.title, requireInteraction: payload.requireInteraction });
+    const response = await requestWorkerNotification(worker.active, payload);
+    await record("worker-acknowledged", { id, workerVersion: response.version });
+    $("notice").textContent = "The service worker confirmed showNotification() completed. Check Windows for the notification.";
+  } catch (error) {
+    await record("worker-send-error", { id, error: errorDetails(error) }, "error");
+    throw error;
+  }
+});
 action("subscribe", async () => {
   if (Notification.permission !== "granted") throw new Error("Allow notifications first.");
   const applicationServerKey = decodePublicKey(config.vapidPublicKey);
-  await record("worker-registration-started", { scope: baseURL.href });
-  const worker = await navigator.serviceWorker.register(new URL("sw.js", baseURL), {
-    scope: baseURL.href, type: "module", updateViaCache: "none",
-  });
-  await record("worker-registered", { scope: worker.scope });
-  await waitForActivation(worker);
-  await record("worker-activated", { scope: worker.scope });
+  const worker = await ensureWorker();
   await record("push-subscription-started");
   subscription = await worker.pushManager.subscribe({
     userVisibleOnly: true, applicationServerKey,
@@ -238,12 +303,16 @@ async function diagnosticReport() {
   let workerError = null;
   try {
     const registered = await registration();
-    const subscribed = registered ? await registered.pushManager.getSubscription() : null;
     worker = registered ? {
       scope: registered.scope, installing: workerState(registered.installing),
       waiting: workerState(registered.waiting), active: workerState(registered.active),
-      subscribed: !!subscribed, expirationTime: subscribed?.expirationTime ?? null,
+      subscribed: null, expirationTime: null,
     } : null;
+    if (worker) {
+      const subscribed = registered.pushManager ? await registered.pushManager.getSubscription() : null;
+      worker.subscribed = !!subscribed;
+      worker.expirationTime = subscribed?.expirationTime ?? null;
+    }
   } catch (error) {
     workerError = errorDetails(error);
     await record("diagnostic-snapshot-error", { error: workerError }, "error");
@@ -264,6 +333,7 @@ async function diagnosticReport() {
       id, dueAt: new Date(timer.dueAt).toISOString(), delaySeconds: timer.delaySeconds,
     })),
     limitations: [
+      "The one-click worker test is triggered by an open page; it does not test network push or delivery after closing the page.",
       "API success does not prove a Windows banner or Notification Center entry.",
       "The site cannot read Do Not Disturb, OS notification settings, or enterprise policies.",
       "No push-received event does not distinguish an unsent push from transport or browser delivery failure; compare sender logs.",
@@ -295,6 +365,7 @@ action("clear-notifications", async () => {
 });
 
 installErrorHandlers(fail);
+$("advanced-push").addEventListener("toggle", () => refresh().catch(fail));
 for (const event of ["focus", "blur", "visibilitychange", "online", "offline"]) {
   window.addEventListener(event, () => record(event).then(refresh).catch(fail));
 }
@@ -318,15 +389,13 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-async function start() {
-  for (const id of ["export", "console-log", "clear-log"]) $(id).disabled = false;
-  await record("page-opened", { url: diagnosticURL(location.href), userAgent: navigator.userAgent,
-    secureContext: isSecureContext });
+async function loadPushConfiguration() {
   await record("configuration-requested");
   const response = await fetch(new URL("config.json", baseURL), { cache: "no-store" });
-  if (!response.ok) throw new Error(`Cannot load site configuration (HTTP ${response.status}).`);
-  config = await response.json();
-  if (!/^[\w.-]+\/[\w.-]+$/.test(config.repository)) throw new Error("Invalid repository configuration.");
+  if (!response.ok) throw new Error(`Cannot load optional push configuration (HTTP ${response.status}). The basic tests are still available.`);
+  const loaded = await response.json();
+  if (!/^[\w.-]+\/[\w.-]+$/.test(loaded.repository)) throw new Error("Invalid optional push repository configuration.");
+  config = loaded;
   const repoURL = `https://github.com/${config.repository}`;
   $("actions").href = `${repoURL}/actions/workflows/send-push.yml`;
   $("secrets").href = `${repoURL}/settings/secrets/actions`;
@@ -334,6 +403,12 @@ async function start() {
   $("secret-command").textContent =
     `Get-Content .\\notification-test-subscription.json -Raw |\n  gh secret set WEB_PUSH_SUBSCRIPTION --repo ${config.repository}`;
   await record("configuration-loaded");
+}
+
+async function start() {
+  for (const id of ["export", "console-log", "clear-log"]) $(id).disabled = false;
+  await record("page-opened", { url: diagnosticURL(location.href), userAgent: navigator.userAgent,
+    secureContext: isSecureContext });
   if (navigator.permissions) {
     try {
       const permission = await navigator.permissions.query({ name: "notifications" });
@@ -349,5 +424,11 @@ async function start() {
   }
   await refresh();
   $("notice").textContent = "Ready. Choose a notification path above.";
+  try {
+    await loadPushConfiguration();
+    await refresh();
+  } catch (error) {
+    await fail(error, "configuration-error");
+  }
 }
 start().catch(error => fail(error, "startup-error"));

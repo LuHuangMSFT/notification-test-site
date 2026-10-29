@@ -8,23 +8,41 @@ and Edge's **Install this site as an app** window.
 | Path | Implementation | Needs an open site document? |
 |---|---|---|
 | Tab / app window | Page JavaScript calls `new Notification()`, immediately or after a timer | Yes |
-| Real Web Push | GitHub Actions -> browser push service -> SW `push` event -> `showNotification()` | No |
+| Service worker (simple) | Page `postMessage()` -> SW `message` event -> `showNotification()` | Yes, to trigger it and receive confirmation; the notification can outlive the page |
+| Real Web Push (optional advanced) | GitHub Actions -> browser push service -> SW `push` event -> `showNotification()` | No |
 
-This is a diagnostic sample, not a Dynamics replica. The push button subscribes
-the browser; it does **not** substitute a page-triggered `showNotification()` for
-network push. No worker is registered on initial page load, and no web app
+This is a diagnostic sample, not a Dynamics replica. **The two primary tests
+need no push subscription, credentials, GitHub account, or notification server.**
+The simple worker test is explicitly page-triggered, not simulated network push.
+No worker is registered on initial page load, and no web app
 manifest is supplied. The worker has no offline cache or fetch interception.
 
 ## Test it
 
 1. Open the live site in Edge and allow notifications. If permission is blocked,
    change the site's Notifications permission through its address-bar site settings.
-2. Before subscribing, install through **Settings and more > More tools > Apps >
+2. Before using the worker test, install through **Settings and more > More tools > Apps >
    Install this site as an app**. This tests installation of a plain website.
 3. Use **Send tab notification now**, or schedule one and minimize the app.
    The document must remain open. Closing it destroys its timers; background
    throttling, sleeping tabs, or OS suspension can delay them.
-4. Subscribe to push in that browser profile, then download the private
+4. Click **Send service-worker notification**. The site registers and activates
+   its worker automatically, sends it a message, and waits for confirmation that
+   the worker's `showNotification()` completed. No subscription setup is needed.
+5. Check Windows banners and Notification Center separately, then download the
+   diagnostic report. Repeat in an ordinary tab and in the installed app.
+
+The simple worker test must be triggered while the page is open. It creates a
+browser-managed notification that can outlive the page; it does **not** prove
+incoming delivery after closing the app or quitting the browser. There is no
+worker timer pretending to be reliable background push.
+
+## Optional: real Web Push
+
+The existing network-push setup is retained under the collapsed **Optional: real
+Web Push (advanced)** section. Skip it for the primary tests above.
+
+1. Open that section and subscribe in the target browser profile, then download the private
    subscription JSON. As the repository owner, save it using PowerShell:
 
    ```powershell
@@ -36,16 +54,16 @@ manifest is supplied. The worker has no offline cache or fetch interception.
    repository's secrets. Alternatively, paste the file into a secret named
    `WEB_PUSH_SUBSCRIPTION` under **Settings > Secrets and variables > Actions**.
    **Never commit the file or put subscription JSON in workflow inputs.**
-5. Open **Actions > Send Web Push > Run workflow** on `main`. Choose a delay
+2. Open **Actions > Send Web Push > Run workflow** on `main`. Choose a delay
    from 0 to 300 seconds, a synthetic title/body, and optional persistent-reminder
    behavior. Close this site's tabs and app windows before the send step fires.
    Workflow queue time is separate from the requested delay.
-6. Observe the OS notification, then reopen the site and inspect its event log.
+3. Observe the OS notification, then reopen the site and inspect its event log.
    `push-received` and `push-show-resolved` are persisted by the worker even with
    no page open. Check Notification Center and transient banners independently.
 
 Only repository writers can dispatch the sender. Public visitors can test page
-notifications and subscribe locally, but cannot send from this repository's
+and simple worker notifications and subscribe locally, but cannot send from this repository's
 Actions workflow. There is **one target subscription** in the secret: replace
 it to target a different browser/profile/device. Tabs and app windows in the same
 profile and project scope normally share it.
@@ -95,6 +113,12 @@ customer explicitly downloads/shares them; nothing is uploaded automatically.
 - `tab-requested`: the document is about to call the Notification API.
 - `tab-created`: the Notification constructor returned successfully.
 - `tab-show`: the browser emitted the document notification's show event.
+- `worker-requested`: the page is about to send its request to the worker.
+- `worker-received`: the worker received the page's message, not a push event.
+- `worker-display-requested` / `worker-show-resolved`: the worker called
+  `showNotification()` / its promise resolved.
+- `worker-acknowledged`: the page received the worker's completion response.
+  A missing response is reported as an error after 15 seconds, not as success.
 - Sender HTTP success: the browser's push service accepted the encrypted message.
 - `push-received`: the service worker handled an actual push event.
 - `push-display-requested`: the worker is about to call `showNotification()`.
@@ -119,15 +143,17 @@ may delay or suppress delivery. Push messages expire after 300 seconds.
 
 ## Deployment and secrets
 
-GitHub Pages serves **only `site/`**. The private sender runs in Actions.
+GitHub Pages serves **only `site/`**. The private optional push sender runs in Actions.
+The primary notification tests do not depend on push configuration or secrets.
 
 - `site/config.json`: repository name and **public** VAPID key.
 - `VAPID_PRIVATE_KEY`: repository Actions secret; never published.
 - `WEB_PUSH_SUBSCRIPTION`: repository Actions secret; entered by the owner for the
   chosen test browser. It contains a sensitive endpoint and encryption keys.
 
-For a new repository/fork, update `repository` in `site/config.json`, clear its
-public key, and run `npm ci` followed by `npm run configure` while GitHub CLI is
+For a new repository/fork, update `repository` in `site/config.json` and clear its
+public key. The primary tests can be deployed without configuring push keys.
+Only for optional real push, run `npm ci` followed by `npm run configure` while GitHub CLI is
 authenticated as its owner. This generates a VAPID pair, uploads the private key
 directly through stdin to `gh secret set`, and writes only the public key to the
 site. Enable Pages with **GitHub Actions** as the source, then commit and push.
@@ -163,7 +189,8 @@ headless mode before deploying. The separate headless shell reports notification
 permission as denied even after an automation grant, so it is not used here.
 Unit tests cover push payloads, endpoint validation, encryption, worker display
 and failure handling, click routing, and the absence of a manifest. Browser tests
-exercise the actual page Notification API, document timers, worker activation,
+exercise the actual page Notification API, document timers, page-to-worker messaging,
+worker notifications without a subscription, worker activation/upgrades,
 IndexedDB persistence, console/report capture, and injected failure/redaction cases.
 Automated headless checks do **not** establish native
 Windows presentation or real push-service delivery; use the live procedure above.
@@ -180,8 +207,9 @@ contain page URL, browser version, and synthetic event details, not subscription
 credentials. GitHub serves the page and processes Actions secrets; the browser's
 push provider receives push messages when the owner sends them.
 
-Unsubscribe in the site, remove the `WEB_PUSH_SUBSCRIPTION` secret, close test
-notifications, and clear the local event log when finished. Uninstall the test
+Close test notifications and clear the local event log when finished. If you
+used optional real push, unsubscribe in its advanced section and remove the
+`WEB_PUSH_SUBSCRIPTION` secret. Uninstall the test
 app and remove only the disposable profile if one was created. Older document
 notifications can outlive their page; dismiss those individually in Notification
 Center, not with its global Clear all command.
