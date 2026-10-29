@@ -1,0 +1,29 @@
+:root { color-scheme: light dark; font: 16px/1.55 system-ui, sans-serif; }
+body { margin: 0; background: light-dark(#f3f6fa, #111827); color: light-dark(#17243b, #e5eaf2); }
+main { max-width: 1150px; margin: auto; padding: 2rem 1rem; }
+header { max-width: 850px; margin-bottom: 2rem; }
+h1 { font-size: clamp(2rem, 4vw, 3rem); line-height: 1.15; margin: .4rem 0 1rem; }
+h2 { font-size: 1.3rem; margin-top: 0; }
+.eyebrow { font-size: .75rem; font-weight: 750; letter-spacing: .1em; color: light-dark(#335b91, #a5c9fb); }
+section { background: light-dark(#fff, #1b2535); border: 1px solid light-dark(#ced8e6, #40516a); border-radius: 12px; padding: 1.3rem; margin-bottom: 1.2rem; min-width: 0; }
+.paths { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr)); gap: 1.2rem; }
+a { color: light-dark(#1756a1, #a5c9fb); text-underline-offset: .15em; }
+button, input { font: inherit; }
+button { border: 1px solid light-dark(#597493, #8099bb); border-radius: 6px; background: light-dark(#edf4ff, #263d5a); color: inherit; padding: .6rem .8rem; cursor: pointer; }
+button:hover:enabled { background: light-dark(#dceaff, #365479); }
+button:disabled { opacity: .55; cursor: not-allowed; }
+:focus-visible { outline: 3px solid light-dark(#075dc1, #8fc1ff); outline-offset: 3px; }
+.buttons { display: flex; flex-wrap: wrap; gap: .6rem; margin: .9rem 0; }
+label { display: block; margin-top: .9rem; }
+input[type=number] { width: 7rem; padding: .35rem; }
+input[type=checkbox] { width: 1.1rem; height: 1.1rem; vertical-align: middle; }
+.check { margin-bottom: 1rem; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; }
+dt { font-weight: 650; } dd { margin: 0; overflow-wrap: anywhere; }
+pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: light-dark(#eff3f8, #101a28); padding: 1rem; border-radius: 6px; font-size: .8rem; }
+#log { max-height: 34rem; }
+#error { color: light-dark(#a11b16, #ffaaa3); font-weight: 650; }
+#error:empty { display: none; }
+summary { cursor: pointer; font-weight: 600; }
+li { margin-bottom: .6rem; }
+footer { font-size: .85rem; }

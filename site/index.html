@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Site-as-app Notification Lab</title>
+  <link rel="icon" href="./icon.svg">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">MANIFEST-FREE TEST SITE</p>
+      <h1>Site-as-app Notification Lab</h1>
+      <p>Compare a normal browser tab with Edge's <strong>Install this site as an app</strong>.
+        This site has no web app manifest. Installing it does not subscribe you to push.</p>
+    </header>
+
+    <section aria-labelledby="environment-heading">
+      <h2 id="environment-heading">1. Check the environment</h2>
+      <dl id="environment"></dl>
+      <div class="buttons">
+        <button id="permission" disabled>Allow notifications</button>
+        <button id="refresh" disabled>Refresh status</button>
+      </div>
+      <p>In Edge: <strong>Settings and more &gt; More tools &gt; Apps &gt;
+        Install this site as an app</strong>. If already installed, the menu may offer
+        Open in app instead. A site-as-app window can report <code>minimal-ui</code>.</p>
+      <p>If permission is blocked, change this site's Notifications permission in
+        the address-bar site settings, then refresh. No browser flags are needed.</p>
+    </section>
+
+    <div class="paths">
+      <section aria-labelledby="tab-heading">
+        <p class="eyebrow">PATH A: PAGE JAVASCRIPT</p>
+        <h2 id="tab-heading">2. Tab / app-window notification</h2>
+        <p><code>new Notification()</code> runs in this document. Keep this tab or
+          app window open; minimizing is fine. Closing it stops pending timers.
+          Background throttling or sleeping tabs can delay timers.</p>
+        <label for="tab-delay">Delay (seconds, 0-300)</label>
+        <input id="tab-delay" type="number" min="0" max="300" step="1" value="10">
+        <label class="check"><input id="tab-persistent" type="checkbox">
+          Require interaction (persistent reminder)</label>
+        <div class="buttons">
+          <button id="tab-now" disabled>Send tab notification now</button>
+          <button id="tab-schedule" disabled>Schedule tab notification</button>
+          <button id="tab-cancel" disabled>Cancel pending tab notifications</button>
+        </div>
+        <p id="tab-status" role="status">No pending timers.</p>
+      </section>
+
+      <section aria-labelledby="push-heading">
+        <p class="eyebrow">PATH B: REAL NETWORK PUSH</p>
+        <h2 id="push-heading">3. Push &rarr; service worker &rarr; notification</h2>
+        <p>GitHub Actions sends encrypted Web Push to the browser's push service.
+          The browser fires a real <code>push</code> event; the service worker calls
+          <code>showNotification()</code>. This path does not need an open site tab.</p>
+        <p id="push-status" role="status">Checking subscription...</p>
+        <div class="buttons">
+          <button id="subscribe" disabled>Subscribe this browser to push</button>
+          <button id="download" disabled>Download private subscription</button>
+          <button id="unsubscribe" disabled>Unsubscribe this browser</button>
+        </div>
+        <ol>
+          <li>Allow notifications, then subscribe this browser.</li>
+          <li>Download its private subscription JSON. Treat it as sensitive; do not
+            commit it, attach it to issues, or paste it into Actions inputs.</li>
+          <li>As the repository owner, save it in the <code>WEB_PUSH_SUBSCRIPTION</code>
+            Actions secret. This replaces the previous target browser.</li>
+          <li>Open <a id="actions" href="https://github.com/LuHuangMSFT/notification-test-site/actions/workflows/send-push.yml" target="_blank" rel="noopener noreferrer">Send Web Push in GitHub Actions</a>,
+            choose <strong>Run workflow</strong>, and set a delay.
+            Close this site's windows before delivery to test background push.</li>
+        </ol>
+        <details>
+          <summary>Register the subscription privately (PowerShell / GitHub CLI)</summary>
+          <p>Sign GitHub CLI into the repository owner's account, then run this in the
+            directory containing the downloaded file:</p>
+          <pre><code id="secret-command"></code></pre>
+          <p>Alternatively, copy the file contents into the repository's
+            <a id="secrets" href="https://github.com/LuHuangMSFT/notification-test-site/settings/secrets/actions" target="_blank" rel="noopener noreferrer">Actions secrets settings</a>.
+            Never enter a GitHub access token or the VAPID private key into this site.</p>
+        </details>
+        <p>GitHub may queue a workflow; its delay begins when the send step starts.
+          Closing all browser processes or disabling OS background delivery can
+          prevent or delay push. A successful sender run means the push service
+          accepted the message, not that Windows displayed a banner.</p>
+      </section>
+    </div>
+
+    <section aria-labelledby="evidence-heading">
+      <h2 id="evidence-heading">4. Inspect the evidence</h2>
+      <p>Events stay in this browser profile, bounded to the latest 100. Push events
+        are saved even with the page closed; reopen it and refresh. Check Windows
+        Notification Center separately: API success is not proof of a visible banner.</p>
+      <div class="buttons">
+        <button id="export" disabled>Download event log</button>
+        <button id="clear-notifications" disabled>Close this site's test notifications</button>
+        <button id="clear-log" disabled>Clear local event log</button>
+      </div>
+      <p id="notice" role="status" aria-live="polite">Starting...</p>
+      <p id="error" role="alert"></p>
+      <pre id="log" aria-label="Notification event log"></pre>
+    </section>
+    <footer>
+      <p>No analytics, third-party scripts, web app manifest, or notification backend.
+        Subscription credentials are not uploaded by this page. GitHub hosts the
+        site; after you register its secret, Actions sends to the browser's push service.</p>
+      <p><a id="source" href="https://github.com/LuHuangMSFT/notification-test-site" target="_blank" rel="noopener noreferrer">Source and test instructions</a></p>
+    </footer>
+  </main>
+</body>
+</html>

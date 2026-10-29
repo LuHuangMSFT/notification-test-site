@@ -1,0 +1,52 @@
+name: Send Web Push
+run-name: Send one Web Push notification
+on:
+  workflow_dispatch:
+    inputs:
+      delay_seconds:
+        description: Seconds to wait after the send step starts (0-300)
+        default: "30"
+        required: true
+        type: string
+      title:
+        description: Synthetic notification title (1-100 characters)
+        default: SAA push notification
+        required: true
+        type: string
+      body:
+        description: Synthetic notification body (up to 300 characters; no personal data)
+        default: Real Web Push received by the service worker.
+        required: true
+        type: string
+      require_interaction:
+        description: Require interaction (persistent reminder)
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: send-web-push
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --omit=dev
+      - name: Send encrypted push
+        run: npm run send
+        env:
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          WEB_PUSH_SUBSCRIPTION: ${{ secrets.WEB_PUSH_SUBSCRIPTION }}
+          DELAY_SECONDS: ${{ inputs.delay_seconds }}
+          NOTIFICATION_TITLE: ${{ inputs.title }}
+          NOTIFICATION_BODY: ${{ inputs.body }}
+          REQUIRE_INTERACTION: ${{ inputs.require_interaction }}
