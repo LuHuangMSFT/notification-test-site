@@ -5,7 +5,7 @@ export default defineConfig({
   fullyParallel: false,
   use: {
     baseURL: "http://localhost:8769/notification-test-site/",
-    channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
+    channel: process.env.PLAYWRIGHT_CHANNEL || "chromium",
     headless: true,
   },
   webServer: {

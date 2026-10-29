@@ -14,6 +14,7 @@ test("plain-site load does not install a worker or declare a manifest", async ({
 test("real document Notification API records a request with granted permission", async ({ page, context }) => {
   await context.grantPermissions(["notifications"]);
   await page.goto("./");
+  expect(await page.evaluate(() => Notification.permission)).toBe("granted");
   await page.getByRole("button", { name: "Send tab notification now", exact: true }).click();
   await expect(page.locator("#log")).toContainText("tab-requested");
   await expect(page.locator("#error")).toBeEmpty();
@@ -24,6 +25,7 @@ test("tab timer can be canceled and closing the document stops its pending callb
   await context.grantPermissions(["notifications"]);
   await page.clock.install();
   await page.goto("./");
+  expect(await page.evaluate(() => Notification.permission)).toBe("granted");
   await page.getByRole("button", { name: "Schedule tab notification", exact: true }).click();
   await expect(page.locator("#tab-status")).toContainText("1 pending");
   await page.getByRole("button", { name: "Cancel pending tab notifications", exact: true }).click();
@@ -42,6 +44,7 @@ test("delayed tab callback fires and captures current visibility", async ({ page
   await context.grantPermissions(["notifications"]);
   await page.clock.install();
   await page.goto("./");
+  expect(await page.evaluate(() => Notification.permission)).toBe("granted");
   await page.getByRole("button", { name: "Schedule tab notification", exact: true }).click();
   await expect(page.locator("#tab-status")).toContainText("1 pending");
   await page.clock.fastForward(11000);

@@ -110,7 +110,9 @@ $env:PLAYWRIGHT_CHANNEL = "msedge" # use an existing Edge installation on Window
 npm run test:browser
 ```
 
-CI installs Playwright Chromium and runs the same browser suite before deploying.
+CI installs full Playwright Chromium and runs the same browser suite in its new
+headless mode before deploying. The separate headless shell reports notification
+permission as denied even after an automation grant, so it is not used here.
 Unit tests cover push payloads, endpoint validation, encryption, worker display
 and failure handling, click routing, and the absence of a manifest. Browser tests
 exercise the actual page Notification API, document timers, worker activation,
