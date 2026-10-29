@@ -1,26 +1,29 @@
 import { validatePushPayload, notificationOptions, TAG_PREFIX } from "./shared.js";
+import { errorDetails } from "./diagnostics.js";
 
 export async function handlePush(event, registration, record, publish) {
   let payload;
   try {
     payload = validatePushPayload(event.data?.json());
   } catch {
-    await record("push-error", { message: "Missing or invalid push payload." });
+    await record("push-error", { message: "Missing or invalid push payload." }, "error");
     throw new Error("Missing or invalid push payload.");
   }
   // Diagnostic storage must not prevent a visible notification.
   let diagnosticError;
   try {
     await record("push-received", { id: payload.id, sentAt: payload.sentAt });
+    await record("push-display-requested", { id: payload.id, title: payload.title,
+      requireInteraction: payload.requireInteraction, scope: registration.scope });
   } catch (error) {
     diagnosticError = error;
-    await publish({ type: "lab-error", message: error.message });
+    await publish({ type: "lab-error", message: errorDetails(error).message });
   }
   try {
     await registration.showNotification(payload.title,
       notificationOptions(payload, registration.scope));
   } catch (error) {
-    await record("push-display-error", { id: payload.id, message: error.message });
+    await record("push-display-error", { id: payload.id, error: errorDetails(error) }, "error");
     throw error;
   }
   await record("push-show-resolved", { id: payload.id, title: payload.title,

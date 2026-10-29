@@ -5,6 +5,7 @@ const root = new URL("../site/", import.meta.url);
 const files = new Map([
   ["index.html", "text/html"], ["style.css", "text/css"], ["config.json", "application/json"],
   ["app.js", "text/javascript"], ["shared.js", "text/javascript"], ["store.js", "text/javascript"],
+  ["diagnostics.js", "text/javascript"],
   ["sw.js", "text/javascript"], ["push-handler.js", "text/javascript"], ["icon.svg", "image/svg+xml"],
 ]);
 const prefix = "/notification-test-site/";

@@ -5,6 +5,7 @@ import { readFile, readdir } from "node:fs/promises";
 import webPush from "web-push";
 import { parseDelay, decodePublicKey, validatePushPayload } from "../site/shared.js";
 import { handlePush, handleClick } from "../site/push-handler.js";
+import { errorDetails } from "../site/diagnostics.js";
 import { validateSubscription, createPayload, safeFailure } from "../scripts/send-push.mjs";
 
 const payload = createPayload({}, "test-id", new Date("2026-01-01T00:00:00Z"));
@@ -78,7 +79,7 @@ test("push handler awaits receipt, actual display, and durable completion", asyn
       assert.equal(options.tag, `notification-lab:${payload.id}`);
     },
   }, async event => calls.push(event), async () => calls.push("publish"));
-  assert.deepEqual(calls, ["push-received", "display", "push-show-resolved", "publish"]);
+  assert.deepEqual(calls, ["push-received", "push-display-requested", "display", "push-show-resolved", "publish"]);
 });
 
 test("push display errors are recorded and rejected, not reported as success", async () => {
@@ -87,7 +88,7 @@ test("push display errors are recorded and rejected, not reported as success", a
     scope: "https://example.com/",
     async showNotification() { throw new Error("display rejected"); },
   }, async event => events.push(event), async () => {}), /display rejected/);
-  assert.deepEqual(events, ["push-received", "push-display-error"]);
+  assert.deepEqual(events, ["push-received", "push-display-requested", "push-display-error"]);
 });
 
 test("diagnostic storage failure cannot prevent attempting notification display", async () => {
@@ -130,6 +131,19 @@ test("provider failures never print subscription endpoints or private material",
     { statusCode: 410, body: "credential", endpoint: "secret-endpoint" },
     { statusCode: 403, body: "credential" },
   ]) assert.doesNotMatch(safeFailure(error), /secret-endpoint|credential/);
+});
+
+test("captured errors preserve useful names and redact credentials and arbitrary rejection objects", () => {
+  const key = "a".repeat(87);
+  const error = new DOMException(
+    `Subscription failed at https://fcm.googleapis.com/secret-endpoint?token=private auth=private-auth ${key}`,
+    "NotAllowedError");
+  const details = errorDetails(error);
+  assert.equal(details.name, "NotAllowedError");
+  assert.match(details.message, /Subscription failed/);
+  assert.doesNotMatch(JSON.stringify(details), /secret-endpoint|private-auth|private|a{40}/);
+  assert.doesNotMatch(JSON.stringify(errorDetails({ endpoint: "secret", keys: subscription.keys })), /secret|p256dh/);
+  assert.doesNotMatch(JSON.stringify(errorDetails("Bearer short-credential")), /short-credential/);
 });
 
 test("deployed site contains no web app manifest, private key, or subscription export", async () => {

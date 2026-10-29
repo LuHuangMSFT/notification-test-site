@@ -1,4 +1,5 @@
-export const MAX_EVENTS = 100;
+export const MAX_EVENTS = 500;
+export const LAB_VERSION = "diagnostics-1";
 export const TAG_PREFIX = "notification-lab:";
 
 export function parseDelay(value) {

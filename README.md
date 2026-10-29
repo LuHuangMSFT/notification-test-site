@@ -50,15 +50,63 @@ Actions workflow. There is **one target subscription** in the secret: replace
 it to target a different browser/profile/device. Tabs and app windows in the same
 profile and project scope normally share it.
 
+## Collect customer diagnostics
+
+After reproducing a problem, click **Download diagnostic report**. Send
+`notification-test-diagnostics.json`, the approximate test time, whether the test
+used a tab or installed app, and whether a banner and/or Notification Center
+entry appeared. Export before clearing browser data or uninstalling. For push,
+reopen the site in the same profile after delivery, then export; include the
+sender's Actions run URL so the message ID can be correlated.
+
+The report includes the lab version, browser/OS user agent, secure context,
+permission, display mode, focus/visibility, online hint, worker/controller states,
+subscription presence (not credentials), pending timers, and the latest 500
+timestamped page/worker events. Context IDs distinguish documents and worker
+lifetimes; notification IDs link timer/request/display events and the sender.
+Failures include the operation, error name/message, and sanitized stack when
+available. Registration, activation, subscription, permission changes, runtime
+errors, and unhandled rejections are recorded.
+
+For DevTools, enable **Preserve log** and Info/Warning/Error, and filter Console
+for **Notification Lab**. Live page events appear in the page console; worker
+events appear in its own console under **Application > Service workers > Inspect**.
+The page's **Print saved diagnostics to console** button replays saved events from
+both contexts into the page console, including background events after reopening.
+Leave worker DevTools closed while testing worker suspension/background delivery,
+because inspecting it can keep it alive.
+
+If IndexedDB fails, the page displays a storage warning and retains a bounded
+in-memory log for export while that document remains open. Notifications still
+run; persistence is not claimed. A storage timeout is reported after 3 seconds
+per operation; after a storage failure, further I/O is skipped until reload or a
+successful log clear. If the page cannot load its JavaScript at all, collect the native
+DevTools Console/Network errors instead; the in-page exporter cannot run.
+
+**Never send `notification-test-subscription.json` as diagnostics.** It contains
+private delivery credentials. Diagnostic reports do not collect subscription
+endpoints/keys, strip page query strings/fragments, and redact URLs and key-like
+values from captured errors. They still include browser details and synthetic
+notification titles: review them before sharing. Reports stay local until the
+customer explicitly downloads/shares them; nothing is uploaded automatically.
+
 ## What the evidence means
 
-- `tab-requested`: the document called the Notification API.
+- `tab-requested`: the document is about to call the Notification API.
+- `tab-created`: the Notification constructor returned successfully.
 - `tab-show`: the browser emitted the document notification's show event.
 - Sender HTTP success: the browser's push service accepted the encrypted message.
 - `push-received`: the service worker handled an actual push event.
+- `push-display-requested`: the worker is about to call `showNotification()`.
 - `push-show-resolved`: `registration.showNotification()` resolved.
 - Windows Notification Center / banner: must be inspected separately. Neither
   API resolution nor push-service acceptance proves OS presentation.
+
+No `push-received` event alone cannot distinguish an unsent push from a push
+transport/browser failure or an expired local log; compare the sender run.
+The website cannot read Windows Do Not Disturb, OS notification settings, or
+enterprise policy state. The online field is only the browser's connectivity
+hint, not proof it can reach the push service.
 
 Installed sites can use `minimal-ui`, not just `standalone`. A normal tab can
 also use an installed app's native notification collection; window type alone
@@ -116,7 +164,8 @@ permission as denied even after an automation grant, so it is not used here.
 Unit tests cover push payloads, endpoint validation, encryption, worker display
 and failure handling, click routing, and the absence of a manifest. Browser tests
 exercise the actual page Notification API, document timers, worker activation,
-and IndexedDB persistence. Automated headless checks do **not** establish native
+IndexedDB persistence, console/report capture, and injected failure/redaction cases.
+Automated headless checks do **not** establish native
 Windows presentation or real push-service delivery; use the live procedure above.
 
 For native Windows Edge checks, use an unsigned-in test profile inside Edge's
@@ -126,7 +175,7 @@ notification bridge and create a false failure.
 ## Privacy and cleanup
 
 There is no analytics or custom subscription-collection backend. The site stores
-at most 100 diagnostic events in this browser profile's IndexedDB. Log exports
+at most 500 diagnostic events in this browser profile's IndexedDB. Log exports
 contain page URL, browser version, and synthetic event details, not subscription
 credentials. GitHub serves the page and processes Actions secrets; the browser's
 push provider receives push messages when the owner sends them.

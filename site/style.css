@@ -22,8 +22,8 @@ dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1rem; }
 dt { font-weight: 650; } dd { margin: 0; overflow-wrap: anywhere; }
 pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: light-dark(#eff3f8, #101a28); padding: 1rem; border-radius: 6px; font-size: .8rem; }
 #log { max-height: 34rem; }
-#error { color: light-dark(#a11b16, #ffaaa3); font-weight: 650; }
-#error:empty { display: none; }
+#error, #storage-warning { color: light-dark(#a11b16, #ffaaa3); font-weight: 650; }
+#error:empty, #storage-warning:empty { display: none; }
 summary { cursor: pointer; font-weight: 600; }
 li { margin-bottom: .6rem; }
 footer { font-size: .85rem; }

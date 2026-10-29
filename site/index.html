@@ -92,16 +92,26 @@
 
     <section aria-labelledby="evidence-heading">
       <h2 id="evidence-heading">4. Inspect the evidence</h2>
-      <p>Events stay in this browser profile, bounded to the latest 100. Push events
+      <p>Events stay in this browser profile, bounded to the latest 500. Push events
         are saved even with the page closed; reopen it and refresh. Check Windows
         Notification Center separately: API success is not proof of a visible banner.</p>
       <div class="buttons">
-        <button id="export" disabled>Download event log</button>
+        <button id="export" disabled>Download diagnostic report</button>
+        <button id="console-log" disabled>Print saved diagnostics to console</button>
         <button id="clear-notifications" disabled>Close this site's test notifications</button>
         <button id="clear-log" disabled>Clear local event log</button>
       </div>
+      <p>After a failure, download the diagnostic report before clearing data or uninstalling.
+        It includes browser/environment details, worker state, notification IDs, timestamps,
+        and errors, but not subscription credentials. Review it before sharing.
+        <strong>Do not send the private subscription JSON as a diagnostic report.</strong></p>
+      <p>In DevTools Console, enable <strong>Preserve log</strong> and the Info/Warning/Error
+        levels, then filter for <code>Notification Lab</code>. Use <strong>Print saved diagnostics
+        to console</strong> to include earlier page and background-worker events.
+        Opening worker DevTools can keep the worker alive; leave it closed during background tests.</p>
       <p id="notice" role="status" aria-live="polite">Starting...</p>
       <p id="error" role="alert"></p>
+      <p id="storage-warning" role="alert"></p>
       <pre id="log" aria-label="Notification event log"></pre>
     </section>
     <footer>
